@@ -1,7 +1,16 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const fixturePath = path.join(__dirname, '..', 'src', 'database', 'seeds', 'dummy-users.json');
+const fixturePath = path.join(
+  __dirname,
+  '..',
+  'libs',
+  'common',
+  'src',
+  'database',
+  'seeds',
+  'dummy-users.json',
+);
 
 if (!fs.existsSync(fixturePath)) {
   console.error('Dummy fixture file not found:', fixturePath);
