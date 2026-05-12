@@ -84,40 +84,37 @@ Copy `.env.example` to `.env` and fill in real values. Never commit `.env`.
 
 ### Strict Env Validation
 
-`src/common/config/env.validation.ts` is enforced automatically when `NODE_ENV=production`, which makes production-grade deployments fail fast on missing required configuration. Non-production runs keep local developer flexibility.
+`libs/common/src/config/env.validation.ts` is enforced automatically when `NODE_ENV=production`, which makes production-grade deployments fail fast on missing required configuration. Non-production runs keep local developer flexibility.
 
 ---
 
 ## Project Structure
 
 ```text
-src/
-  main.ts                           Bootstrap: Helmet, CORS, body limits, shutdown hooks, Swagger
-  app.module.ts                     Root module: ConfigModule, SupabaseModule, ApiCenterSdkModule
-  app.controller.ts                 GET /api/v1 → { service, version }
-  app.service.ts
-  common/
-    config/
-      security.config.ts            CISO-owned: Helmet options, CORS factory, body size limit
-      env.validation.ts             Strict env var validation (enabled in production)
-    filters/
-      all-exceptions.filter.ts      Global exception filter — structured error envelope
-    middleware/
-      correlation-id.middleware.ts  X-Correlation-ID request/response propagation
-  api-center/
-    api-center-sdk.module.ts        Global module
-    api-center-sdk.service.ts       SDK client: get<T>(), post<T>(), ping()
-  supabase/
-    supabase.module.ts              Global module
-    supabase.service.ts             Supabase client: getClient(), ping()
-  health/
-    health.module.ts
-    health.controller.ts            GET /api/v1/health → 200 ok/degraded | 503 error
-    health.service.ts               Parallel checks: Supabase + API Center connectivity
+apps/
+  api/
+    src/
+      main.ts                       HTTP bootstrap: Helmet, CORS, validation, Swagger
+      api.module.ts                 Root HTTP module
+      api.controller.ts             GET /api/v1 -> { service, version }
+      health/                       GET /api/v1/health
+    Dockerfile
+  location-service/
+    src/
+      main.ts                       TCP microservice bootstrap
+      location-service.module.ts    Domain service module
+      location/                     MessagePattern handlers
+    Dockerfile
+libs/
+  api-center/                       Global TribeClient provider and registration service
+  common/                           Config, security, filters, middleware, seed data
+  contracts/                        Shared message patterns and payload contracts
+  supabase/                         Supabase module/service
 tests/
-  e2e/                              Supertest e2e specs
+  e2e/                              Supertest e2e specs for the HTTP API
   performance/
-    smoke.js                        k6 smoke test targeting /api/v1/health
+    api-smoke.js                    k6 smoke test targeting /api/v1/health
+    location-service-smoke.js       service smoke placeholder for deployed health URL
 ```
 
 ---
@@ -235,7 +232,40 @@ Before the first pipeline run, configure these in your GitHub repository:
 
 | Variable | Example Value | Purpose |
 |----------|--------------|---------|
-| `BACKEND_SINGLE_SYSTEMS_JSON` | `{"name":"my-api","dir":".","image":"ghcr.io/org/my-api"}` | Tells the pipeline which service to build |
+| `BACKEND_MULTI_SYSTEMS_JSON` | See below | Tells the pipeline to test/build each deployable app in this monorepo |
+
+Example:
+
+```json
+[
+  {
+    "name": "my-api",
+    "dir": ".",
+    "install_dir": ".",
+    "project": "api",
+    "image": "ghcr.io/org/my-api",
+    "backend_stack": "nestjs",
+    "version_stream": "api",
+    "test_command": "npm run test:cov -- --selectProjects api",
+    "build_command": "npm run build:api",
+    "dockerfile_path": "apps/api/Dockerfile",
+    "k6_script_path": "tests/performance/api-smoke.js"
+  },
+  {
+    "name": "my-location-service",
+    "dir": ".",
+    "install_dir": ".",
+    "project": "location-service",
+    "image": "ghcr.io/org/my-location-service",
+    "backend_stack": "nestjs",
+    "version_stream": "location-service",
+    "test_command": "npm run test:cov -- --selectProjects location-service",
+    "build_command": "npm run build:location-service",
+    "dockerfile_path": "apps/location-service/Dockerfile",
+    "k6_script_path": "tests/performance/location-service-smoke.js"
+  }
+]
+```
 
 **Repository Secrets:**
 
@@ -344,12 +374,12 @@ All new feature modules must pass `npm run typecheck` with zero errors. Use type
 
 ## Integrating Into an Existing Tribe Backend
 
-If your tribe already has the NestJS backend, bring these layers across:
+If your tribe already has a NestJS backend, migrate toward this workspace shape:
 
-1. **Copy the common layer** — `src/common/` (filters, middleware, security config, env validation)
-2. **Copy the modules** — `src/supabase/`, `src/api-center/`, `src/health/`
-3. **Update `main.ts`** — apply the bootstrap pattern (Helmet, CORS, ValidationPipe, AllExceptionsFilter, global prefix `api/v1`)
-4. **Update `app.module.ts`** — import `ConfigModule`, `SupabaseModule`, `ApiCenterSdkModule`, apply `CorrelationIdMiddleware`
-5. **Replace the CI caller** — use `.github/workflows/be-pipeline-caller.yml` from this template
-6. **Configure GitHub** — set the repository variables and secrets listed above
-7. **Set your `.env`** — Supabase credentials, API Center URL, tribe credentials (or legacy key fallback), and CORS origins
+1. **Adopt the workspace layout** - keep deployable runtimes under `apps/*` and shared modules under `libs/*`.
+2. **Copy the shared libraries** - `libs/common`, `libs/api-center`, `libs/supabase`, and `libs/contracts`.
+3. **Wire HTTP modules through `apps/api/src/api.module.ts`** - import shared modules and any tribe domain modules needed by the API.
+4. **Add new microservices under `apps/<domain>-service`** - expose message contracts from `libs/contracts`.
+5. **Replace the CI caller** - use `.github/workflows/be-pipeline-caller.yml` from this template.
+6. **Configure GitHub** - set `BACKEND_MULTI_SYSTEMS_JSON`, GitHub Packages access, and the repository secrets listed above.
+7. **Set runtime env** - Supabase credentials, API Center URL, tribe credentials, CORS origins, and per-service ports.

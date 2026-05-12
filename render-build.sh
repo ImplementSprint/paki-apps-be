@@ -1,18 +1,14 @@
 #!/bin/bash
 set -e
 
-echo "Starting Render custom build script..."
+echo "Starting Render custom build script for the NestJS monorepo..."
 
-# 1. Build the shared SDK
-echo "Building @apicenter/sdk..."
-cd ../../api-shared
-npm install
-npm run build
+if [ -z "${GITHUB_TOKEN}" ]; then
+  echo "GITHUB_TOKEN is required to install @implementsprint/sdk from GitHub Packages." >&2
+  exit 1
+fi
 
-# 2. Build the backend
-echo "Building the backend app..."
-cd ../repo-be/template-repo-be
-npm install
-npm run build
+npm ci --ignore-scripts
+npm run build:api
 
 echo "Build complete!"

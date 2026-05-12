@@ -11,7 +11,7 @@ COPY tsconfig*.json nest-cli.json ./
 COPY apps ./apps
 COPY libs ./libs
 
-RUN npm run build:api
+RUN npm run build:location-service
 
 FROM node:22-alpine AS runner
 
@@ -30,9 +30,6 @@ COPY --chown=nestjs:nodejs --from=builder /app/dist ./dist
 
 USER nestjs
 
-EXPOSE 3000
+EXPOSE 4010
 
-HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
-  CMD node -e "require('http').get('http://127.0.0.1:3000/api/v1/health', (res) => { if (res.statusCode !== 200) process.exit(1); }).on('error', () => process.exit(1));"
-
-CMD ["node", "dist/apps/api/main"]
+CMD ["node", "dist/apps/location-service/main"]
