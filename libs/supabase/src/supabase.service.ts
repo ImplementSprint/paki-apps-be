@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
@@ -273,5 +273,59 @@ export class SupabaseService implements OnModuleInit {
     }
 
     return this.getClientForService(serviceName);
+  }
+
+  createAdminClient(): SupabaseClient {
+    const client = this.getClient();
+    if (!client) {
+      throw new InternalServerErrorException(
+        'Supabase admin client is not available. Check SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.',
+      );
+    }
+    return client;
+  }
+
+  createServerClient(): SupabaseClient {
+    const url = this.configService.get<string>('SUPABASE_URL')?.trim();
+    const anonKey = this.configService.get<string>('SUPABASE_ANON_KEY')?.trim();
+
+    if (!url || !anonKey) {
+      throw new InternalServerErrorException(
+        'Supabase server client is not available. Check SUPABASE_URL and SUPABASE_ANON_KEY.',
+      );
+    }
+
+    return this.buildClient(url, anonKey);
+  }
+
+  async logActivity(
+    userId: string,
+    actionType: string,
+    entityType: string,
+    entityId: string,
+    descriptionFn: (name: string) => string,
+  ): Promise<void> {
+    try {
+      const admin = this.createAdminClient();
+
+      const { data } = await admin
+        .schema('account')
+        .from('profiles')
+        .select('full_name')
+        .eq('id', userId)
+        .single();
+
+      const fullName = (data as { full_name?: string } | null)?.full_name ?? 'Unknown User';
+
+      await admin.schema('public').from('audit_logs').insert({
+        user_id: userId,
+        action: actionType,
+        entity_type: entityType,
+        entity_id: entityId,
+        description: descriptionFn(fullName),
+      });
+    } catch (error) {
+      this.logger.error('Failed to log activity', error);
+    }
   }
 }
