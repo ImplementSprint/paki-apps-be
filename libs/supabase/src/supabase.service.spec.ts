@@ -303,4 +303,90 @@ describe('SupabaseService', () => {
       ).not.toBeNull();
     });
   });
+
+  describe('logActivity()', () => {
+    it('inserts an audit log row with the resolved full name', async () => {
+      const service = await createService(
+        'https://abc.supabase.co',
+        'service-role-key',
+      );
+
+      const mockInsert = jest.fn().mockResolvedValue({ error: null });
+      const mockFrom = jest.fn().mockReturnValue({ insert: mockInsert });
+      const mockSchema = jest.fn().mockReturnValue({ from: mockFrom });
+      const mockSelect = jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          single: jest.fn().mockResolvedValue({
+            data: { full_name: 'Jane Doe' },
+          }),
+        }),
+      });
+      const mockProfileFrom = jest.fn().mockReturnValue({ select: mockSelect });
+
+      setInternalClient(service, {
+        auth: { admin: { listUsers: jest.fn().mockResolvedValue({ error: null }) } },
+        schema: jest.fn().mockImplementation((schema: string) => ({
+          from: schema === 'account' ? mockProfileFrom : mockFrom,
+        })),
+      } as any);
+
+      await service.logActivity(
+        'user-123',
+        'USER_LOGIN',
+        'User',
+        'user-123',
+        (name) => `${name} logged in`,
+      );
+
+      expect(mockInsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          user_id: 'user-123',
+          action: 'USER_LOGIN',
+          entity_type: 'User',
+          entity_id: 'user-123',
+          description: 'Jane Doe logged in',
+        }),
+      );
+    });
+
+    it('does not throw when the admin client is null', async () => {
+      const service = await createService(undefined, undefined);
+      await expect(
+        service.logActivity('u', 'ACTION', 'Entity', 'e', () => 'desc'),
+      ).resolves.not.toThrow();
+    });
+  });
+
+  describe('createAdminClient()', () => {
+    it('returns the initialized client', async () => {
+      const service = await createService(
+        'https://abc.supabase.co',
+        'service-role-key',
+      );
+      expect(service.createAdminClient()).not.toBeNull();
+    });
+
+    it('throws InternalServerErrorException when client is null', async () => {
+      const service = await createService(undefined, undefined);
+      expect(() => service.createAdminClient()).toThrow();
+    });
+  });
+
+  describe('createServerClient()', () => {
+    it('returns a client when SUPABASE_URL and SUPABASE_ANON_KEY are set', async () => {
+      const service = await createService(
+        'https://abc.supabase.co',
+        'service-role-key',
+      );
+      // Stub ConfigService.get to also return the anon key
+      (service as any).configService = {
+        get: (key: string) => {
+          if (key === 'SUPABASE_URL') return 'https://abc.supabase.co';
+          if (key === 'SUPABASE_ANON_KEY') return 'anon-key';
+          return undefined;
+        },
+      };
+      expect(service.createServerClient()).not.toBeNull();
+    });
+  });
 });
